@@ -50,7 +50,7 @@ The app will now load plot data from Supabase and save investor interest submiss
 
 ## 4. Maps and venture photos
 - Add `latitude` and `longitude` (decimal degrees) to each plot row. The map only places pins for rows with valid coordinates.
-- Listings can be plots, flats/apartments, commercial properties, or buildings, offered for sale or rent. Search filters include property type, sale/rent, and availability.
+- Listings can be plots, flats/apartments, commercial properties, or buildings, offered for sale or rent. Search filters include property type, sale/rent, and availability. The **List a property** page also shows existing listings with an **Edit** action.
 - For the web map, enable the Maps JavaScript API and billing, then set `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` to a key restricted to your website domains and that API. The map focuses on one property pin, hides Google points of interest, and switches to a tilted satellite view when selected.
 - For native Google Maps, set `GOOGLE_MAPS_IOS_API_KEY` and/or `GOOGLE_MAPS_ANDROID_API_KEY` in `.env`. Restrict keys to your app identifiers and the matching Maps SDK. Native Google Maps configuration requires a development or production build; Expo Go on iOS previews with Apple Maps until the iOS key is configured in a new build.
 - The SQL setup creates the public `venture-photos` bucket. Add listing photos from the device gallery or camera; the app stores their public URLs in `photo_urls`. Uploads are limited to JPEG, PNG, or WebP and 10 MB per image.

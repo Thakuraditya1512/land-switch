@@ -263,6 +263,7 @@ export default function App() {
   const [newLongitude, setNewLongitude] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newPhotoUrls, setNewPhotoUrls] = useState([]);
+  const pageScrollRef = useRef(null);
 
   async function loadPlots() {
     if (!isSupabaseConfigured || !supabase) return;
@@ -372,6 +373,7 @@ export default function App() {
     setListingMode(true);
     setSelected(null);
     setSheetExpanded(false);
+    if (pageScrollRef.current) pageScrollRef.current.scrollTo({ y: 0, animated: true });
   }
 
   const filteredPlots = useMemo(() => {
@@ -612,7 +614,7 @@ export default function App() {
       }
 
       resetListingForm();
-      setListingMode(false);
+      if (!wasEditing) setListingMode(false);
       setSelected(null);
       Alert.alert(wasEditing ? 'Property updated' : 'Property listed', wasEditing
         ? 'Your property changes have been saved.'
@@ -647,7 +649,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safe}>
       <ExpoStatusBar style="dark" />
-      <ScrollView contentContainerStyle={styles.page}>
+      <ScrollView ref={pageScrollRef} contentContainerStyle={styles.page}>
         <View style={styles.pageInner}>
           <View style={styles.header}>
             <TouchableOpacity
@@ -842,6 +844,41 @@ export default function App() {
                 disabled={savingListing || uploadingPhotos}
               />
               <Text style={styles.helperText}>Run the latest Supabase migration first. Enter both coordinates to place the property pin. Camera access requires permission.</Text>
+              <View style={styles.manageListings}>
+                <View style={styles.manageListingsHeading}>
+                  <View>
+                    <Text style={styles.sectionEyebrow}>LISTED PROPERTY MANAGEMENT</Text>
+                    <Text style={styles.manageListingsTitle}>Edit a listed property</Text>
+                  </View>
+                  <Text style={styles.resultCount}>{plots.length} listed</Text>
+                </View>
+                {loading ? (
+                  <View style={styles.loadingState}>
+                    <ActivityIndicator color="#24634D" />
+                    <Text style={styles.loadingText}>Loading listed properties...</Text>
+                  </View>
+                ) : plots.length ? (
+                  plots.map(plot => (
+                    <View key={plot.id} style={styles.manageListingRow}>
+                      <View style={styles.manageListingDetails}>
+                        <Text style={styles.manageListingName} numberOfLines={1}>{plot.title}</Text>
+                        <Text style={styles.manageListingLocation} numberOfLines={1}>{plot.location}</Text>
+                        <Text style={styles.manageListingMeta}>
+                          {propertyTypeLabel(plot.property_type)} · {plot.listing_type === 'rent' ? 'For rent' : 'For sale'} · {plot.status || 'Available'}
+                        </Text>
+                      </View>
+                      <ActionButton
+                        label="Edit"
+                        onPress={() => startEditingPlot(plot)}
+                        secondary
+                        compact
+                      />
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.manageListingsEmpty}>No properties have been listed yet.</Text>
+                )}
+              </View>
             </View>
           ) : (
             <View style={styles.discovery}>
@@ -1173,6 +1210,15 @@ const styles = StyleSheet.create({
   uploadedPhotoItem: { alignItems: 'center', gap: 5 },
   uploadedPhotoPreview: { width: 100, height: 78, borderRadius: 10, backgroundColor: '#E7ECE6' },
   removePhotoText: { color: '#8E392C', fontSize: 10, fontWeight: '800', paddingVertical: 3 },
+  manageListings: { marginTop: 26, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#E8EAE3' },
+  manageListingsHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 },
+  manageListingsTitle: { color: '#1D3027', fontSize: 17, fontWeight: '900', marginTop: 5 },
+  manageListingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F8F8F3', borderWidth: 1, borderColor: '#E8EAE3', borderRadius: 14, padding: 12, marginBottom: 9 },
+  manageListingDetails: { flex: 1, minWidth: 0 },
+  manageListingName: { color: '#25352B', fontSize: 13, fontWeight: '900' },
+  manageListingLocation: { color: '#758075', fontSize: 11, marginTop: 4 },
+  manageListingMeta: { color: '#A17D43', fontSize: 10, fontWeight: '800', marginTop: 5 },
+  manageListingsEmpty: { color: '#758075', fontSize: 12, paddingVertical: 14 },
   disabledButton: { opacity: 0.55 },
   helperText: { color: '#818B80', fontSize: 10, lineHeight: 15, marginTop: 11 },
   footer: { borderTopWidth: 1, borderTopColor: '#E4E6DE', marginTop: 34, paddingTop: 20, flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
