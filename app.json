@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "PlotInvest",
+    "slug": "plot-invest",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#F7F8F5"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.plotinvest.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#174C3C"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}
