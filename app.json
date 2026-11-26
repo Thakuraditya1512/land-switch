@@ -1,12 +1,15 @@
 {
   "expo": {
-    "name": "PlotInvest",
-    "slug": "plot-invest",
+    "name": "switchLAND.IN",
+    "slug": "switchland-in",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
     "splash": {
-      "backgroundColor": "#F7F8F5"
+      "image": "./assets/adaptive-icon.png",
+      "imageWidth": 180,
+      "backgroundColor": "#F4F2ED"
     },
     "ios": {
       "supportsTablet": true
@@ -14,14 +17,22 @@
     "android": {
       "package": "com.plotinvest.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#174C3C"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#153D36"
       }
     },
     "web": {
       "bundler": "metro"
     },
     "plugins": [
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow switchLAND.IN to select property photos.",
+          "cameraPermission": "Allow switchLAND.IN to take property photos."
+        }
+      ]
     ]
   }
 }

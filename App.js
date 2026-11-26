@@ -17,12 +17,39 @@ import {
   useWindowDimensions
 } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
+import * as ImagePicker from 'expo-image-picker';
 import { isSupabaseConfigured, supabase } from './src/supabase';
 import VentureMap from './src/VentureMap';
 
-const filters = ['All plots', 'Available', 'Reserved', 'Sold'];
-
+const statusFilters = ['All listings', 'Available', 'Reserved', 'Sold', 'Rented'];
+const propertyTypeOptions = [
+  { value: 'all', label: 'All types' },
+  { value: 'plot', label: 'Plots' },
+  { value: 'apartment', label: 'Flats' },
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'building', label: 'Buildings' }
+];
+const listingTypeOptions = [
+  { value: 'all', label: 'Sale or rent' },
+  { value: 'sale', label: 'For sale' },
+  { value: 'rent', label: 'For rent' }
+];
+const rentPeriodOptions = [
+  { value: 'month', label: 'Per month' },
+  { value: 'year', label: 'Per year' }
+];
 const formatMoney = value => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+const propertyTypeLabel = type => ({
+  plot: 'Plot',
+  apartment: 'Flat / apartment',
+  commercial: 'Commercial',
+  building: 'Building'
+}[type] || 'Property');
+const formatListingPrice = plot => {
+  const price = formatMoney(plot.price);
+  if (plot.listing_type !== 'rent') return price;
+  return `${price} / ${plot.rent_period === 'year' ? 'year' : 'month'}`;
+};
 const formatArea = plot => plot.area_sqft !== null && plot.area_sqft !== undefined
   ? `${Number(plot.area_sqft).toLocaleString('en-IN')} sq ft`
   : `${Number(plot.area_sqyd || 0).toLocaleString('en-IN')} sq yd`;
@@ -33,16 +60,18 @@ const hasCoordinates = plot => plot
   && Number(plot.latitude) >= -90 && Number(plot.latitude) <= 90
   && Number(plot.longitude) >= -180 && Number(plot.longitude) <= 180;
 
-function ActionButton({ label, onPress, secondary = false, compact = false }) {
+function ActionButton({ label, onPress, secondary = false, compact = false, disabled = false }) {
   return (
     <TouchableOpacity
       accessibilityRole="button"
-      activeOpacity={0.82}
+      activeOpacity={disabled ? 1 : 0.82}
+      disabled={disabled}
       onPress={onPress}
       style={[
         styles.actionButton,
         secondary && styles.secondaryButton,
-        compact && styles.compactButton
+        compact && styles.compactButton,
+        disabled && styles.disabledButton
       ]}
     >
       <Text style={[styles.actionButtonText, secondary && styles.secondaryButtonText]}>{label}</Text>
@@ -64,6 +93,27 @@ function Field({ label, value, onChangeText, placeholder, keyboardType = 'defaul
         placeholderTextColor="#8B938B"
         style={[styles.input, multiline && styles.multilineInput]}
       />
+    </View>
+  );
+}
+
+function OptionGroup({ label, options, value, onChange }) {
+  return (
+    <View style={styles.optionGroup}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.optionRow}>
+        {options.map(option => (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityState={{ selected: value === option.value }}
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            style={[styles.optionChip, value === option.value && styles.activeOptionChip]}
+          >
+            <Text style={[styles.optionText, value === option.value && styles.activeOptionText]}>{option.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </View>
   );
 }
@@ -112,22 +162,25 @@ function PlotCard({ plot, selected, onPress }) {
       style={[styles.plotCard, selected && styles.selectedPlotCard]}
     >
       <View style={styles.plotCardTop}>
-        <View style={styles.plotGlyph}><Text style={styles.plotGlyphText}>P</Text></View>
+        <View style={styles.plotGlyph}><Text style={styles.plotGlyphText}>L</Text></View>
         <View style={styles.plotHeading}>
           <Text style={styles.plotName} numberOfLines={1}>{plot.title}</Text>
           <Text style={styles.plotLocation} numberOfLines={1}>{plot.location}</Text>
+          <Text style={styles.plotTypeLine} numberOfLines={1}>
+            {propertyTypeLabel(plot.property_type)} · {plot.listing_type === 'rent' ? 'For rent' : 'For sale'}
+          </Text>
         </View>
         <Text style={[styles.statusPill, statusStyle]}>{plot.status || 'Available'}</Text>
       </View>
 
       <View style={styles.plotFacts}>
         <View>
-          <Text style={styles.plotPrice}>{formatMoney(plot.price)}</Text>
-          <Text style={styles.factLabel}>Total price</Text>
+          <Text style={styles.plotPrice}>{formatListingPrice(plot)}</Text>
+          <Text style={styles.factLabel}>{plot.listing_type === 'rent' ? 'Rent' : 'Asking price'}</Text>
         </View>
         <View>
           <Text style={styles.plotPrice}>{formatArea(plot)}</Text>
-          <Text style={styles.factLabel}>Plot area</Text>
+          <Text style={styles.factLabel}>Area</Text>
         </View>
         <View>
           <Text style={styles.plotPrice}>{Number(plot.interests || 0)}</Text>
@@ -151,18 +204,22 @@ function PlotCard({ plot, selected, onPress }) {
 }
 
 function AreaMap({ plots, selectedPlot, onSelectPlot }) {
+  const mapPlots = selectedPlot ? [selectedPlot] : plots.slice(0, 1);
+
   return (
     <View style={styles.mapCard}>
       <View style={styles.mapHeader}>
         <View>
-          <Text style={styles.mapTitle}>Explore the region</Text>
-          <Text style={styles.mapSubtitle}>Select a blue pin to zoom to a venture</Text>
+          <Text style={styles.mapTitle}>Property location</Text>
+          <Text style={styles.mapSubtitle}>A single property pin, focused in satellite view</Text>
         </View>
-        <View style={styles.mapCount}><Text style={styles.mapCountText}>{plots.length} plots</Text></View>
+        <View style={styles.mapCount}>
+          <Text style={styles.mapCountText}>{mapPlots.length} {mapPlots.length === 1 ? 'pin' : 'pins'}</Text>
+        </View>
       </View>
 
       <View style={styles.mapCanvas}>
-        <VentureMap plots={plots} selectedPlot={selectedPlot} onSelectPlot={onSelectPlot} />
+        <VentureMap plots={mapPlots} selectedPlot={selectedPlot} onSelectPlot={onSelectPlot} />
       </View>
     </View>
   );
@@ -174,7 +231,9 @@ export default function App() {
   const [plots, setPlots] = useState([]);
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All plots');
+  const [statusFilter, setStatusFilter] = useState('All listings');
+  const [propertyTypeFilter, setPropertyTypeFilter] = useState('all');
+  const [listingTypeFilter, setListingTypeFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [name, setName] = useState('');
@@ -182,10 +241,20 @@ export default function App() {
   const [phone, setPhone] = useState('');
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const [listingMode, setListingMode] = useState(false);
+  const [editingPlot, setEditingPlot] = useState(null);
+  const [savingListing, setSavingListing] = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newLocation, setNewLocation] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [newArea, setNewArea] = useState('');
+  const [newAreaUnit, setNewAreaUnit] = useState('sqyd');
+  const [newPropertyType, setNewPropertyType] = useState('plot');
+  const [newListingType, setNewListingType] = useState('sale');
+  const [newRentPeriod, setNewRentPeriod] = useState('month');
+  const [newStatus, setNewStatus] = useState('Available');
+  const [newFloorNumber, setNewFloorNumber] = useState('');
+  const [newContactPhone, setNewContactPhone] = useState('');
   const [newDeveloper, setNewDeveloper] = useState('');
   const [newApproval, setNewApproval] = useState('');
   const [newAcreage, setNewAcreage] = useState('');
@@ -193,7 +262,7 @@ export default function App() {
   const [newLatitude, setNewLatitude] = useState('');
   const [newLongitude, setNewLongitude] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [newPhotoUrls, setNewPhotoUrls] = useState('');
+  const [newPhotoUrls, setNewPhotoUrls] = useState([]);
 
   async function loadPlots() {
     if (!isSupabaseConfigured || !supabase) return;
@@ -207,7 +276,7 @@ export default function App() {
 
     if (error) {
       const message = error.code === 'PGRST205'
-        ? "Supabase cannot find public.plots. Run supabase/schema.sql in the project's SQL Editor."
+        ? 'Supabase cannot find public.plots. Run schema.sql for a new database, or the latest venture-map-migration.sql for an existing table.'
         : error.message;
       setLoadError(`Could not load plots: ${message}`);
       setLoading(false);
@@ -242,14 +311,82 @@ export default function App() {
     loadPlots();
   }, []);
 
+  function resetListingForm() {
+    setEditingPlot(null);
+    setNewTitle('');
+    setNewLocation('');
+    setNewPrice('');
+    setNewArea('');
+    setNewAreaUnit('sqyd');
+    setNewPropertyType('plot');
+    setNewListingType('sale');
+    setNewRentPeriod('month');
+    setNewStatus('Available');
+    setNewFloorNumber('');
+    setNewContactPhone('');
+    setNewDeveloper('');
+    setNewApproval('');
+    setNewAcreage('');
+    setNewPricePerSqyd('');
+    setNewLatitude('');
+    setNewLongitude('');
+    setNewDescription('');
+    setNewPhotoUrls([]);
+  }
+
+  function startNewListing() {
+    resetListingForm();
+    setListingMode(true);
+    setSelected(null);
+  }
+
+  function startEditingPlot(plot) {
+    setEditingPlot(plot);
+    setNewTitle(plot.title || '');
+    setNewLocation(plot.location || '');
+    setNewPrice(String(plot.price || ''));
+    const propertyType = plot.property_type || 'plot';
+    const usesSquareFeet = propertyType !== 'plot';
+    setNewAreaUnit(usesSquareFeet ? 'sqft' : 'sqyd');
+    setNewArea(String(usesSquareFeet
+      ? plot.area_sqft ?? (plot.area_sqyd ? Number(plot.area_sqyd) * 9 : '')
+      : plot.area_sqyd || ''));
+    setNewPropertyType(propertyType);
+    setNewListingType(plot.listing_type || 'sale');
+    setNewRentPeriod(plot.rent_period || 'month');
+    const savedStatus = plot.status || 'Available';
+    setNewStatus((plot.listing_type || 'sale') === 'rent' && savedStatus === 'Sold'
+      || (plot.listing_type || 'sale') === 'sale' && savedStatus === 'Rented'
+      ? 'Available'
+      : savedStatus);
+    setNewFloorNumber(plot.floor_number === null || plot.floor_number === undefined ? '' : String(plot.floor_number));
+    setNewContactPhone(plot.contact_phone || '');
+    setNewDeveloper(plot.developer_name || '');
+    setNewApproval(plot.approval_details || '');
+    setNewAcreage(plot.acreage ? String(plot.acreage) : '');
+    setNewPricePerSqyd(plot.price_per_sqyd ? String(plot.price_per_sqyd) : '');
+    setNewLatitude(plot.latitude === null || plot.latitude === undefined ? '' : String(plot.latitude));
+    setNewLongitude(plot.longitude === null || plot.longitude === undefined ? '' : String(plot.longitude));
+    setNewDescription(plot.description || '');
+    setNewPhotoUrls(Array.isArray(plot.photo_urls) ? plot.photo_urls : []);
+    setListingMode(true);
+    setSelected(null);
+    setSheetExpanded(false);
+  }
+
   const filteredPlots = useMemo(() => {
     const search = query.trim().toLowerCase();
     return plots.filter(plot => {
-      const matchesSearch = !search || `${plot.title} ${plot.location}`.toLowerCase().includes(search);
-      const matchesStatus = statusFilter === 'All plots' || (plot.status || 'Available') === statusFilter;
-      return matchesSearch && matchesStatus;
+      const propertyTypeTerms = plot.property_type === 'apartment' ? 'flat apartment' : propertyTypeLabel(plot.property_type);
+      const listingTypeTerms = plot.listing_type === 'rent' ? 'rent rental lease' : 'sale buy purchase';
+      const matchesSearch = !search
+        || `${plot.title} ${plot.location} ${propertyTypeTerms} ${listingTypeTerms} ${plot.status || 'Available'}`.toLowerCase().includes(search);
+      const matchesStatus = statusFilter === 'All listings' || (plot.status || 'Available') === statusFilter;
+      const matchesPropertyType = propertyTypeFilter === 'all' || (plot.property_type || 'plot') === propertyTypeFilter;
+      const matchesListingType = listingTypeFilter === 'all' || (plot.listing_type || 'sale') === listingTypeFilter;
+      return matchesSearch && matchesStatus && matchesPropertyType && matchesListingType;
     });
-  }, [plots, query, statusFilter]);
+  }, [plots, query, statusFilter, propertyTypeFilter, listingTypeFilter]);
 
   const totalInterest = useMemo(
     () => plots.reduce((sum, plot) => sum + Number(plot.committed || 0), 0),
@@ -312,17 +449,121 @@ export default function App() {
     }
   }
 
+  async function uploadPhotoAssets(assets) {
+    if (!assets.length) return;
+    if (!isSupabaseConfigured || !supabase) {
+      Alert.alert('Connect database', 'Connect Supabase before uploading property photos.');
+      return;
+    }
+    if (newPhotoUrls.length + assets.length > 8) {
+      Alert.alert('Photo limit reached', 'A property can have up to 8 photos. Remove a photo before adding more.');
+      return;
+    }
+
+    setUploadingPhotos(true);
+    let uploadedCount = 0;
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const maxPhotoBytes = 10 * 1024 * 1024;
+    try {
+      for (let index = 0; index < assets.length; index += 1) {
+        const asset = assets[index];
+        const contentType = asset.mimeType || 'image/jpeg';
+        if (!allowedMimeTypes.includes(contentType)) {
+          throw new Error('Choose a JPEG, PNG, or WebP image.');
+        }
+        if (asset.fileSize && asset.fileSize > maxPhotoBytes) {
+          throw new Error('Each photo must be smaller than 10 MB.');
+        }
+
+        const response = await fetch(asset.uri);
+        if (!response.ok) throw new Error('The selected photo could not be read.');
+        const fileData = await response.arrayBuffer();
+        if (fileData.byteLength > maxPhotoBytes) {
+          throw new Error('Each photo must be smaller than 10 MB.');
+        }
+
+        const extension = contentType === 'image/jpeg' ? 'jpg' : contentType.split('/')[1];
+        const filePath = `properties/${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${extension}`;
+        const { data, error } = await supabase.storage
+          .from('venture-photos')
+          .upload(filePath, fileData, { contentType, upsert: false });
+        if (error) throw error;
+
+        const { data: publicData } = supabase.storage
+          .from('venture-photos')
+          .getPublicUrl(data.path);
+        setNewPhotoUrls(current => [...current, publicData.publicUrl]);
+        uploadedCount += 1;
+      }
+
+      if (uploadedCount) {
+        Alert.alert('Photos uploaded', `${uploadedCount} photo${uploadedCount === 1 ? '' : 's'} added to this listing.`);
+      }
+    } catch (error) {
+      Alert.alert('Photo upload failed', error.message || 'Check the image and Supabase Storage settings.');
+    } finally {
+      setUploadingPhotos(false);
+    }
+  }
+
+  async function choosePhotosFromGallery() {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Photo access needed', 'Allow photo library access to choose property photos.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: Math.max(1, 8 - newPhotoUrls.length),
+        quality: 0.85,
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible
+      });
+      if (!result.canceled) await uploadPhotoAssets(result.assets || []);
+    } catch (error) {
+      Alert.alert('Could not open photo library', error.message);
+    }
+  }
+
+  async function takePropertyPhoto() {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Camera access needed', 'Allow camera access to take a property photo.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible
+      });
+      if (!result.canceled) await uploadPhotoAssets(result.assets || []);
+    } catch (error) {
+      Alert.alert('Could not open camera', error.message);
+    }
+  }
+
   async function addPlot() {
     if (!newTitle.trim() || !newLocation.trim() || !newPrice || !newArea) {
-      Alert.alert('Missing details', 'Complete all plot fields.');
+      Alert.alert('Missing details', 'Complete the property name, location, price, and area.');
       return;
     }
     const price = Number(newPrice);
     const area = Number(newArea);
     const latitude = newLatitude.trim() ? Number(newLatitude) : null;
     const longitude = newLongitude.trim() ? Number(newLongitude) : null;
+    const floorNumber = newFloorNumber.trim() ? Number(newFloorNumber) : null;
+    const acreage = newAcreage.trim() ? Number(newAcreage) : null;
+    const pricePerSqyd = newPricePerSqyd.trim() ? Number(newPricePerSqyd) : null;
     if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(area) || area <= 0) {
-      Alert.alert('Invalid details', 'Price and plot area must be positive numbers.');
+      Alert.alert('Invalid details', 'Price and property area must be positive numbers.');
+      return;
+    }
+    if ((floorNumber !== null && (!Number.isInteger(floorNumber) || floorNumber < 0))
+      || (acreage !== null && (!Number.isFinite(acreage) || acreage <= 0))
+      || (pricePerSqyd !== null && (!Number.isFinite(pricePerSqyd) || pricePerSqyd <= 0))) {
+      Alert.alert('Invalid details', 'Floor must be a whole non-negative number; acreage and price per sq yd must be positive.');
       return;
     }
     if ((latitude === null) !== (longitude === null)
@@ -332,46 +573,56 @@ export default function App() {
       return;
     }
     if (!isSupabaseConfigured || !supabase) {
-      Alert.alert('Connect database', 'Set up Supabase first to save plots.');
+      Alert.alert('Connect database', 'Set up Supabase first to save properties.');
       return;
     }
 
-    const { error } = await supabase.from('plots').insert({
+    const listing = {
       title: newTitle.trim(),
       location: newLocation.trim(),
       price,
-      area_sqyd: area,
-      status: 'Available',
+      area_sqyd: newAreaUnit === 'sqft' ? area / 9 : area,
+      area_sqft: newAreaUnit === 'sqft' ? area : null,
+      property_type: newPropertyType,
+      listing_type: newListingType,
+      rent_period: newListingType === 'rent' ? newRentPeriod : null,
+      floor_number: newPropertyType === 'apartment' || newPropertyType === 'building' ? floorNumber : null,
+      contact_phone: newContactPhone.trim() || null,
+      status: newStatus,
       developer_name: newDeveloper.trim() || null,
       approval_details: newApproval.trim() || null,
-      acreage: newAcreage ? Number(newAcreage) : null,
-      price_per_sqyd: newPricePerSqyd ? Number(newPricePerSqyd) : null,
+      price_per_sqyd: newPropertyType === 'plot' && newListingType === 'sale' ? pricePerSqyd : null,
+      acreage: newPropertyType === 'plot' && newListingType === 'sale' ? acreage : null,
       latitude,
       longitude,
       description: newDescription.trim(),
-      photo_urls: newPhotoUrls.split(/\r?\n/).map(url => url.trim()).filter(Boolean)
-    });
+      photo_urls: newPhotoUrls
+    };
 
-    if (error) {
-      Alert.alert('Could not add plot', error.message);
-      return;
+    const wasEditing = Boolean(editingPlot);
+    setSavingListing(true);
+    try {
+      const request = wasEditing
+        ? supabase.from('plots').update(listing).eq('id', editingPlot.id)
+        : supabase.from('plots').insert(listing);
+      const { error } = await request;
+      if (error) {
+        Alert.alert(wasEditing ? 'Could not update property' : 'Could not add property', error.message);
+        return;
+      }
+
+      resetListingForm();
+      setListingMode(false);
+      setSelected(null);
+      Alert.alert(wasEditing ? 'Property updated' : 'Property listed', wasEditing
+        ? 'Your property changes have been saved.'
+        : 'Your property is now listed.');
+      await loadPlots();
+    } catch (error) {
+      Alert.alert(wasEditing ? 'Could not update property' : 'Could not add property', error.message);
+    } finally {
+      setSavingListing(false);
     }
-
-    setNewTitle('');
-    setNewLocation('');
-    setNewPrice('');
-    setNewArea('');
-    setNewDeveloper('');
-    setNewApproval('');
-    setNewAcreage('');
-    setNewPricePerSqyd('');
-    setNewLatitude('');
-    setNewLongitude('');
-    setNewDescription('');
-    setNewPhotoUrls('');
-    setListingMode(false);
-    Alert.alert('Plot added', 'Your plot is now listed.');
-    loadPlots();
   }
 
   const closeDetails = () => {
@@ -404,17 +655,27 @@ export default function App() {
               onPress={() => { setListingMode(false); setSelected(null); }}
               style={styles.brandLockup}
             >
-              <View style={styles.brandMark}><Text style={styles.brandMarkText}>P</Text></View>
+              <View style={styles.brandMark}>
+                <Text style={styles.brandMarkText}>S</Text>
+                <View style={styles.brandMarkAccent} />
+              </View>
               <View>
-                <Text style={styles.brandName}>PLOT<Text style={styles.brandAccent}>INVEST</Text></Text>
-                <Text style={styles.brandTagline}>Land, with more clarity.</Text>
+                <Text style={styles.brandName}>switch<Text style={styles.brandAccent}>LAND.IN</Text></Text>
+                <Text style={styles.brandTagline}>Property, clearly found.</Text>
               </View>
             </TouchableOpacity>
             <View style={styles.headerActions}>
-              <Text style={styles.headerLink}>Explore</Text>
+              {isWide ? <Text style={styles.headerLink}>Explore</Text> : null}
               <ActionButton
-                label={listingMode ? 'Back to plots' : 'List a plot'}
-                onPress={() => setListingMode(!listingMode)}
+                label={listingMode ? 'Back to properties' : 'List a property'}
+                onPress={() => {
+                  if (listingMode) {
+                    resetListingForm();
+                    setListingMode(false);
+                  } else {
+                    startNewListing();
+                  }
+                }}
                 compact={!isWide}
               />
             </View>
@@ -422,15 +683,15 @@ export default function App() {
 
           <View style={[styles.hero, !isWide && styles.heroMobile]}>
             <View style={[styles.heroCopy, !isWide && styles.heroCopyMobile]}>
-              <Text style={styles.eyebrow}>PLOT DISCOVERY · MADE CLEAR</Text>
-              <Text style={[styles.heroTitle, !isWide && styles.heroTitleMobile]}>Find land that{'\n'}fits your next move.</Text>
+              <Text style={styles.eyebrow}>SWITCHLAND.IN · PROPERTY, MADE CLEAR</Text>
+              <Text style={[styles.heroTitle, !isWide && styles.heroTitleMobile]}>Find a place for{'\n'}what comes next.</Text>
               <Text style={styles.heroDescription}>
-                Explore available plots, compare the details, and express interest directly.
+                Discover property with clear details, precise locations, and a simpler way to explore.
               </Text>
               <View style={styles.heroStats}>
                 <View style={styles.heroStat}>
                   <Text style={styles.heroStatNumber}>{plots.length}</Text>
-                  <Text style={styles.heroStatLabel}>Listed plots</Text>
+                  <Text style={styles.heroStatLabel}>Listed properties</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.heroStat}>
@@ -475,25 +736,112 @@ export default function App() {
 
           {listingMode ? (
             <View style={styles.listingForm}>
-              <Text style={styles.eyebrow}>PARTNER WITH PLOTINVEST</Text>
-              <Text style={styles.formTitle}>List a plot</Text>
-              <Text style={styles.formDescription}>Add the venture details and coordinates. Coordinates place a blue marker on the map.</Text>
+              <Text style={styles.eyebrow}>GROW WITH SWITCHLAND.IN</Text>
+              <Text style={styles.formTitle}>{editingPlot ? 'Edit property' : 'List a property'}</Text>
+              <Text style={styles.formDescription}>Choose a property type, sale or rental terms, and add its precise location.</Text>
               <View style={styles.formFields}>
-                <Field label="Plot or venture name" value={newTitle} onChangeText={setNewTitle} placeholder="e.g. Green Valley" />
+                <OptionGroup
+                  label="Property type"
+                  options={propertyTypeOptions.filter(option => option.value !== 'all')}
+                  value={newPropertyType}
+                  onChange={value => {
+                    setNewPropertyType(value);
+                    const nextUnit = value === 'plot' ? 'sqyd' : 'sqft';
+                    if (nextUnit !== newAreaUnit && newArea) setNewArea('');
+                    setNewAreaUnit(nextUnit);
+                  }}
+                />
+                <OptionGroup
+                  label="Listing purpose"
+                  options={listingTypeOptions.filter(option => option.value !== 'all')}
+                  value={newListingType}
+                  onChange={value => {
+                    setNewListingType(value);
+                    setNewStatus('Available');
+                  }}
+                />
+                {newListingType === 'rent' ? (
+                  <OptionGroup
+                    label="Rent period"
+                    options={rentPeriodOptions}
+                    value={newRentPeriod}
+                    onChange={setNewRentPeriod}
+                  />
+                ) : null}
+                <OptionGroup
+                  label="Availability"
+                  options={newListingType === 'rent'
+                    ? [{ value: 'Available', label: 'Available' }, { value: 'Reserved', label: 'Reserved' }, { value: 'Rented', label: 'Rented' }]
+                    : [{ value: 'Available', label: 'Available' }, { value: 'Reserved', label: 'Reserved' }, { value: 'Sold', label: 'Sold' }]}
+                  value={newStatus}
+                  onChange={setNewStatus}
+                />
+                <Field label="Property or project name" value={newTitle} onChangeText={setNewTitle} placeholder="e.g. Green Valley" />
                 <Field label="Area or locality" value={newLocation} onChangeText={setNewLocation} placeholder="e.g. Mokila, Hyderabad" />
-                <Field label="Total price (₹)" value={newPrice} onChangeText={setNewPrice} placeholder="5000000" keyboardType="numeric" />
-                <Field label="Plot area (sq yd)" value={newArea} onChangeText={setNewArea} placeholder="300" keyboardType="numeric" />
+                <Field
+                  label={newListingType === 'rent'
+                    ? `Rent (₹ per ${newRentPeriod})`
+                    : 'Asking price (₹)'}
+                  value={newPrice}
+                  onChangeText={setNewPrice}
+                  placeholder={newListingType === 'rent' ? 'e.g. 25000' : 'e.g. 8500000'}
+                  keyboardType="numeric"
+                />
+                <Field
+                  label={`Property area (${newAreaUnit === 'sqft' ? 'sq ft' : 'sq yd'})`}
+                  value={newArea}
+                  onChangeText={setNewArea}
+                  placeholder={newAreaUnit === 'sqft' ? 'e.g. 950' : 'e.g. 300'}
+                  keyboardType="decimal-pad"
+                />
+                {newPropertyType === 'apartment' || newPropertyType === 'building' ? (
+                  <Field label="Floor (optional)" value={newFloorNumber} onChangeText={setNewFloorNumber} placeholder="e.g. 4" keyboardType="numeric" />
+                ) : null}
+                <Field label="Contact phone (optional)" value={newContactPhone} onChangeText={setNewContactPhone} placeholder="Phone number" keyboardType="phone-pad" />
                 <Field label="Developer (optional)" value={newDeveloper} onChangeText={setNewDeveloper} placeholder="Developer or venture group" />
                 <Field label="Approvals or registration (optional)" value={newApproval} onChangeText={setNewApproval} placeholder="Approval information" />
-                <Field label="Acreage (optional)" value={newAcreage} onChangeText={setNewAcreage} placeholder="e.g. 12.5" keyboardType="decimal-pad" />
-                <Field label="Price per sq yd (optional)" value={newPricePerSqyd} onChangeText={setNewPricePerSqyd} placeholder="e.g. 25000" keyboardType="numeric" />
+                {newPropertyType === 'plot' && newListingType === 'sale' ? (
+                  <>
+                    <Field label="Acreage (optional)" value={newAcreage} onChangeText={setNewAcreage} placeholder="e.g. 12.5" keyboardType="decimal-pad" />
+                    <Field label="Price per sq yd (optional)" value={newPricePerSqyd} onChangeText={setNewPricePerSqyd} placeholder="e.g. 25000" keyboardType="numeric" />
+                  </>
+                ) : null}
                 <Field label="Latitude (decimal degrees)" value={newLatitude} onChangeText={setNewLatitude} placeholder="e.g. 17.3850" keyboardType="decimal-pad" />
                 <Field label="Longitude (decimal degrees)" value={newLongitude} onChangeText={setNewLongitude} placeholder="e.g. 78.4867" keyboardType="decimal-pad" />
                 <Field label="Full description" value={newDescription} onChangeText={setNewDescription} placeholder="Describe access, facilities and key details." multiline />
-                <Field label="Photo URLs (one public image URL per line)" value={newPhotoUrls} onChangeText={setNewPhotoUrls} placeholder="https://.../venture-photo.jpg" multiline />
+                <View style={styles.photoUploadGroup}>
+                  <Text style={styles.fieldLabel}>Property photos</Text>
+                  <Text style={styles.photoUploadHint}>Choose up to 8 JPEG, PNG, or WebP photos (10 MB max each).</Text>
+                  <View style={styles.photoActionRow}>
+                    <ActionButton label="Choose from gallery" onPress={choosePhotosFromGallery} secondary compact disabled={uploadingPhotos} />
+                    <ActionButton label="Take a photo" onPress={takePropertyPhoto} secondary compact disabled={uploadingPhotos} />
+                  </View>
+                  {uploadingPhotos ? (
+                    <View style={styles.photoUploading}>
+                      <ActivityIndicator color="#173F39" />
+                      <Text style={styles.loadingText}>Uploading photos...</Text>
+                    </View>
+                  ) : null}
+                  {newPhotoUrls.length ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.uploadedPhotoRow}>
+                      {newPhotoUrls.map((url, index) => (
+                        <View key={`${url}-${index}`} style={styles.uploadedPhotoItem}>
+                          <Image source={{ uri: url }} style={styles.uploadedPhotoPreview} resizeMode="cover" />
+                          <TouchableOpacity onPress={() => setNewPhotoUrls(current => current.filter((_, photoIndex) => photoIndex !== index))}>
+                            <Text style={styles.removePhotoText}>Remove</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  ) : null}
+                </View>
               </View>
-              <ActionButton label="Submit listing" onPress={addPlot} />
-              <Text style={styles.helperText}>Run the venture-map SQL migration first. Enter both coordinates for an accurate pin. Photo links must be publicly accessible.</Text>
+              <ActionButton
+                label={savingListing ? 'Saving...' : editingPlot ? 'Save changes' : 'Publish property'}
+                onPress={addPlot}
+                disabled={savingListing || uploadingPhotos}
+              />
+              <Text style={styles.helperText}>Run the latest Supabase migration first. Enter both coordinates to place the property pin. Camera access requires permission.</Text>
             </View>
           ) : (
             <View style={styles.discovery}>
@@ -511,7 +859,7 @@ export default function App() {
                   accessibilityLabel="Search by plot or locality"
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search a plot, city or locality"
+                  placeholder="Search by property, area or sale / rent"
                   placeholderTextColor="#818981"
                   style={styles.searchInput}
                 />
@@ -522,18 +870,14 @@ export default function App() {
                 ) : null}
               </View>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-                {filters.map(filter => (
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    key={filter}
-                    onPress={() => setStatusFilter(filter)}
-                    style={[styles.filterChip, statusFilter === filter && styles.activeFilterChip]}
-                  >
-                    <Text style={[styles.filterText, statusFilter === filter && styles.activeFilterText]}>{filter}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              <OptionGroup label="Property type" options={propertyTypeOptions} value={propertyTypeFilter} onChange={setPropertyTypeFilter} />
+              <OptionGroup label="Sale or rent" options={listingTypeOptions} value={listingTypeFilter} onChange={setListingTypeFilter} />
+              <OptionGroup
+                label="Availability"
+                options={statusFilters.map(filter => ({ value: filter, label: filter }))}
+                value={statusFilter}
+                onChange={setStatusFilter}
+              />
 
               <View style={[styles.discoveryColumns, isWide && styles.discoveryColumnsWide]}>
                 <View style={[styles.listColumn, isWide && styles.listColumnWide]}>
@@ -553,9 +897,14 @@ export default function App() {
                     ))
                   ) : (
                     <View style={styles.emptyState}>
-                      <Text style={styles.emptyTitle}>No plots match that search</Text>
+                      <Text style={styles.emptyTitle}>No properties match that search</Text>
                       <Text style={styles.emptyText}>Try another locality or clear the selected filters.</Text>
-                      <TouchableOpacity onPress={() => { setQuery(''); setStatusFilter('All plots'); }}>
+                      <TouchableOpacity onPress={() => {
+                        setQuery('');
+                        setStatusFilter('All listings');
+                        setPropertyTypeFilter('all');
+                        setListingTypeFilter('all');
+                      }}>
                         <Text style={styles.retryText}>Clear filters</Text>
                       </TouchableOpacity>
                     </View>
@@ -577,8 +926,11 @@ export default function App() {
           )}
 
           <View style={styles.footer}>
-            <Text style={styles.footerBrand}>PLOTINVEST</Text>
-            <Text style={styles.footerText}>A clearer way to explore land opportunities.</Text>
+            <View style={styles.footerBrandGroup}>
+              <Text style={styles.footerBrand}>switchLAND.IN</Text>
+              <Text style={styles.footerCompany}>Aman &amp; Aditya LTD</Text>
+            </View>
+            <Text style={styles.footerText}>A clearer way to explore property.</Text>
           </View>
         </View>
       </ScrollView>
@@ -623,12 +975,18 @@ export default function App() {
               ) : (
                 <View style={styles.photoPlaceholder}>
                   <Text style={styles.photoPlaceholderTitle}>Venture photos</Text>
-                  <Text style={styles.photoPlaceholderText}>Upload images to Supabase Storage and add their public URLs to this listing.</Text>
+                  <Text style={styles.photoPlaceholderText}>No photos yet. Edit this property to add photos from your gallery or camera.</Text>
                 </View>
               )}
               {selected.description ? <Text style={styles.detailDescription}>{selected.description}</Text> : null}
               <View style={styles.ventureDetails}>
-                {selected.property_type ? <DetailRow label="Property type" value={selected.property_type} /> : null}
+                <DetailRow label="Property type" value={propertyTypeLabel(selected.property_type)} />
+                <DetailRow
+                  label="Listing"
+                  value={selected.listing_type === 'rent'
+                    ? `For rent · Per ${selected.rent_period || 'month'}`
+                    : 'For sale'}
+                />
                 {selected.floor_number !== null && selected.floor_number !== undefined ? <DetailRow label="Floor" value={String(selected.floor_number)} /> : null}
                 {selected.developer_name ? <DetailRow label="Developer" value={selected.developer_name} /> : null}
                 {selected.approval_details ? <DetailRow label="Approvals" value={selected.approval_details} /> : null}
@@ -637,9 +995,13 @@ export default function App() {
                 {selected.contact_phone ? <DetailRow label="Contact" value={selected.contact_phone} /> : null}
               </View>
               <View style={styles.detailSummary}>
-                <View><Text style={styles.detailPrice}>{formatMoney(selected.price)}</Text><Text style={styles.factLabel}>Total price</Text></View>
+                <View>
+                  <Text style={styles.detailPrice}>{formatListingPrice(selected)}</Text>
+                  <Text style={styles.factLabel}>{selected.listing_type === 'rent' ? 'Rent' : 'Asking price'}</Text>
+                </View>
                 <View><Text style={styles.detailPrice}>{formatArea(selected)}</Text><Text style={styles.factLabel}>Area</Text></View>
               </View>
+              <ActionButton label="Edit property" onPress={() => startEditingPlot(selected)} secondary />
               {hasCoordinates(selected) ? (
                 <ActionButton label="Open location in Google Maps" onPress={openInGoogleMaps} secondary />
               ) : (
@@ -665,7 +1027,7 @@ export default function App() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#F6F5EF',
+    backgroundColor: '#F4F2ED',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0
   },
   page: { paddingHorizontal: 20, paddingBottom: 34 },
@@ -677,61 +1039,62 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12
   },
-  brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   brandMark: {
-    width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#1D4D3D', transform: [{ rotate: '-5deg' }]
+    width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#153D36', borderWidth: 1, borderColor: '#C9A96E'
   },
-  brandMarkText: { color: '#F5F0DC', fontSize: 21, fontWeight: '900' },
-  brandName: { color: '#1D3027', fontSize: 17, fontWeight: '900', letterSpacing: 1.2 },
-  brandAccent: { color: '#6C9278' },
-  brandTagline: { color: '#768177', fontSize: 10, marginTop: 2 },
+  brandMarkText: { color: '#F5F0E4', fontSize: 22, fontWeight: '900' },
+  brandMarkAccent: { position: 'absolute', width: 6, height: 6, borderRadius: 3, right: 8, top: 8, backgroundColor: '#D4B579' },
+  brandName: { color: '#183A34', fontSize: 16, fontWeight: '900', letterSpacing: 0.1 },
+  brandAccent: { color: '#B38C4F' },
+  brandTagline: { color: '#718079', fontSize: 10, marginTop: 2 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  headerLink: { color: '#3D5146', fontSize: 13, fontWeight: '700' },
+  headerLink: { color: '#38534A', fontSize: 13, fontWeight: '700' },
   actionButton: {
     alignItems: 'center', justifyContent: 'center', borderRadius: 13,
-    backgroundColor: '#1D4D3D', paddingHorizontal: 20, paddingVertical: 14
+    backgroundColor: '#173F39', paddingHorizontal: 20, paddingVertical: 14
   },
   actionButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
-  secondaryButton: { backgroundColor: '#E8EEE7', borderWidth: 1, borderColor: '#DDE5DC' },
-  secondaryButtonText: { color: '#1D4D3D' },
+  secondaryButton: { backgroundColor: '#E9EEE9', borderWidth: 1, borderColor: '#D7E0DB' },
+  secondaryButtonText: { color: '#173F39' },
   compactButton: { paddingHorizontal: 14, paddingVertical: 11 },
   hero: {
-    backgroundColor: '#E8ECDD', borderRadius: 26, minHeight: 310, overflow: 'hidden',
+    backgroundColor: '#153D36', borderRadius: 26, minHeight: 310, overflow: 'hidden',
     flexDirection: 'row', alignItems: 'stretch', marginBottom: 30
   },
   heroMobile: { flexDirection: 'column', minHeight: 0 },
   heroCopy: { flex: 1, padding: 30, justifyContent: 'center', zIndex: 1 },
   heroCopyMobile: { padding: 24 },
-  eyebrow: { color: '#54735E', fontSize: 10, letterSpacing: 1.7, fontWeight: '900' },
-  heroTitle: { color: '#1D3027', fontSize: 39, lineHeight: 44, fontWeight: '900', marginTop: 12 },
+  eyebrow: { color: '#D7BA7D', fontSize: 10, letterSpacing: 1.7, fontWeight: '900' },
+  heroTitle: { color: '#FBF9F3', fontSize: 39, lineHeight: 44, fontWeight: '900', marginTop: 12 },
   heroTitleMobile: { fontSize: 32, lineHeight: 37 },
-  heroDescription: { color: '#5D6A5F', fontSize: 14, lineHeight: 21, maxWidth: 400, marginTop: 10 },
+  heroDescription: { color: '#D4DFD9', fontSize: 14, lineHeight: 21, maxWidth: 400, marginTop: 10 },
   heroStats: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 24 },
   heroStat: { minWidth: 72 },
-  heroStatNumber: { color: '#1D3027', fontSize: 16, fontWeight: '900' },
-  heroStatLabel: { color: '#6D796D', fontSize: 10, marginTop: 4 },
-  statDivider: { width: 1, height: 30, backgroundColor: '#CCD5C8' },
-  heroArtwork: { flex: 0.9, minWidth: 250, overflow: 'hidden', position: 'relative', backgroundColor: '#D9E2D3' },
+  heroStatNumber: { color: '#FBF9F3', fontSize: 16, fontWeight: '900' },
+  heroStatLabel: { color: '#BFCFC7', fontSize: 10, marginTop: 4 },
+  statDivider: { width: 1, height: 30, backgroundColor: '#55736A' },
+  heroArtwork: { flex: 0.9, minWidth: 250, overflow: 'hidden', position: 'relative', backgroundColor: '#DDE6DC' },
   heroArtworkMobile: { flex: 0, minWidth: 0, width: '100%', height: 150 },
-  artworkSun: { position: 'absolute', width: 170, height: 170, borderRadius: 85, right: 30, top: 24, backgroundColor: '#E9DAB2' },
-  artworkLine: { position: 'absolute', height: 12, borderRadius: 10, backgroundColor: '#F6F5EF', opacity: 0.92 },
+  artworkSun: { position: 'absolute', width: 170, height: 170, borderRadius: 85, right: 30, top: 24, backgroundColor: '#E6D5AD' },
+  artworkLine: { position: 'absolute', height: 12, borderRadius: 10, backgroundColor: '#F7F5EF', opacity: 0.92 },
   artworkLineOne: { width: '130%', left: '-10%', top: '39%', transform: [{ rotate: '-24deg' }] },
   artworkLineTwo: { width: '120%', left: '-15%', top: '67%', transform: [{ rotate: '18deg' }] },
   artworkLineThree: { width: '100%', left: '10%', top: '15%', transform: [{ rotate: '65deg' }] },
-  artworkPlot: { position: 'absolute', width: 66, height: 60, borderWidth: 1, borderColor: '#9BB19A', backgroundColor: 'rgba(255,255,255,0.28)', transform: [{ rotate: '18deg' }] },
+  artworkPlot: { position: 'absolute', width: 66, height: 60, borderWidth: 1, borderColor: '#78988A', backgroundColor: 'rgba(255,255,255,0.28)', transform: [{ rotate: '18deg' }] },
   artworkPlotOne: { left: '25%', top: '27%' },
   artworkPlotTwo: { left: '57%', top: '47%', width: 80, height: 68 },
   artworkPlotThree: { left: '37%', top: '69%', width: 55, height: 52 },
-  artworkBadge: { position: 'absolute', right: 20, bottom: 20, backgroundColor: '#1D4D3D', borderRadius: 14, paddingHorizontal: 15, paddingVertical: 12 },
+  artworkBadge: { position: 'absolute', right: 20, bottom: 20, backgroundColor: '#153D36', borderRadius: 14, paddingHorizontal: 15, paddingVertical: 12 },
   artworkBadgeTitle: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
-  artworkBadgeText: { color: '#D2E0D3', fontSize: 10, marginTop: 3 },
+  artworkBadgeText: { color: '#D5E0D9', fontSize: 10, marginTop: 3 },
   notice: { backgroundColor: '#F2EBD8', padding: 14, borderRadius: 14, marginBottom: 16 },
   noticeTitle: { color: '#775F2B', fontWeight: '800', fontSize: 12 },
   noticeText: { color: '#775F2B', fontSize: 12, marginTop: 4 },
   errorNotice: { backgroundColor: '#F9E7E1', padding: 14, borderRadius: 14, marginBottom: 16 },
   errorText: { color: '#8E392C', fontSize: 12, lineHeight: 18 },
-  retryText: { color: '#1D4D3D', fontWeight: '900', marginTop: 10, fontSize: 12 },
+  retryText: { color: '#173F39', fontWeight: '900', marginTop: 10, fontSize: 12 },
   discovery: { paddingTop: 4 },
   discoveryHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 },
   sectionEyebrow: { color: '#72806F', fontSize: 9, fontWeight: '900', letterSpacing: 1.4 },
@@ -746,9 +1109,15 @@ const styles = StyleSheet.create({
   clearSearch: { color: '#52705B', fontSize: 11, fontWeight: '800', paddingLeft: 10 },
   filterRow: { gap: 8, paddingVertical: 13 },
   filterChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 18, backgroundColor: '#ECEDE6', borderWidth: 1, borderColor: '#ECEDE6' },
-  activeFilterChip: { backgroundColor: '#1D4D3D', borderColor: '#1D4D3D' },
+  activeFilterChip: { backgroundColor: '#173F39', borderColor: '#173F39' },
   filterText: { fontSize: 11, fontWeight: '700', color: '#68756A' },
   activeFilterText: { color: '#FFFFFF' },
+  optionGroup: { marginBottom: 12 },
+  optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  optionChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: '#ECEDE6', borderWidth: 1, borderColor: '#E1E5DD' },
+  activeOptionChip: { backgroundColor: '#173F39', borderColor: '#173F39' },
+  optionText: { color: '#64736B', fontSize: 11, fontWeight: '700' },
+  activeOptionText: { color: '#FFFFFF' },
   discoveryColumns: { flexDirection: 'column-reverse', gap: 14, alignItems: 'stretch' },
   discoveryColumnsWide: { flexDirection: 'row', alignItems: 'flex-start', gap: 20 },
   listColumn: { width: '100%' },
@@ -758,11 +1127,12 @@ const styles = StyleSheet.create({
   plotCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8EAE3', borderRadius: 18, padding: 16, marginBottom: 11 },
   selectedPlotCard: { borderColor: '#4E7A5D', borderWidth: 2, padding: 15 },
   plotCardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  plotGlyph: { width: 40, height: 40, borderRadius: 13, backgroundColor: '#E8EEE7', alignItems: 'center', justifyContent: 'center' },
-  plotGlyphText: { color: '#1D4D3D', fontSize: 19, fontWeight: '900' },
+  plotGlyph: { width: 40, height: 40, borderRadius: 13, backgroundColor: '#E7ECE6', alignItems: 'center', justifyContent: 'center' },
+  plotGlyphText: { color: '#173F39', fontSize: 19, fontWeight: '900' },
   plotHeading: { flex: 1, minWidth: 0 },
   plotName: { color: '#25352B', fontSize: 14, fontWeight: '900' },
   plotLocation: { color: '#758075', fontSize: 11, marginTop: 4 },
+  plotTypeLine: { color: '#A17D43', fontSize: 10, fontWeight: '800', marginTop: 5 },
   statusPill: { fontSize: 9, fontWeight: '900', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, overflow: 'hidden' },
   availableStatus: { color: '#316647', backgroundColor: '#E6F0E7' },
   otherStatus: { color: '#6E6755', backgroundColor: '#EEECE4' },
@@ -795,9 +1165,20 @@ const styles = StyleSheet.create({
   fieldLabel: { color: '#56645A', fontSize: 11, fontWeight: '800', marginBottom: 6 },
   input: { color: '#26362C', backgroundColor: '#F8F8F3', borderWidth: 1, borderColor: '#E3E7DF', borderRadius: 12, paddingHorizontal: 13, paddingVertical: 12, fontSize: 13, outlineStyle: 'none' },
   multilineInput: { minHeight: 90 },
+  photoUploadGroup: { marginBottom: 14 },
+  photoUploadHint: { color: '#78847C', fontSize: 10, lineHeight: 15 },
+  photoActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  photoUploading: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 12 },
+  uploadedPhotoRow: { gap: 10, paddingVertical: 12 },
+  uploadedPhotoItem: { alignItems: 'center', gap: 5 },
+  uploadedPhotoPreview: { width: 100, height: 78, borderRadius: 10, backgroundColor: '#E7ECE6' },
+  removePhotoText: { color: '#8E392C', fontSize: 10, fontWeight: '800', paddingVertical: 3 },
+  disabledButton: { opacity: 0.55 },
   helperText: { color: '#818B80', fontSize: 10, lineHeight: 15, marginTop: 11 },
   footer: { borderTopWidth: 1, borderTopColor: '#E4E6DE', marginTop: 34, paddingTop: 20, flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
-  footerBrand: { color: '#375944', fontSize: 11, fontWeight: '900', letterSpacing: 1.1 },
+  footerBrandGroup: { gap: 4 },
+  footerBrand: { color: '#173F39', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
+  footerCompany: { color: '#718079', fontSize: 10 },
   footerText: { color: '#798279', fontSize: 10 },
   modalBackdrop: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(20,35,27,0.48)', justifyContent: 'flex-end', alignItems: 'center', paddingTop: 18 },
   detailModal: { width: '100%', maxWidth: 700, height: '76%', maxHeight: '96%', backgroundColor: '#F8F8F3', borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },

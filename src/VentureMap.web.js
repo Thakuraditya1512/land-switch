@@ -37,6 +37,15 @@ function getCoordinates(plot) {
   return { lat: latitude, lng: longitude };
 }
 
+function focusOnProperty(mapInstance, position) {
+  if (!mapInstance) return;
+  mapInstance.setMapTypeId('satellite');
+  mapInstance.panTo(position);
+  mapInstance.setZoom(19);
+  mapInstance.setHeading(30);
+  mapInstance.setTilt(45);
+}
+
 export default function VentureMap({ plots, selectedPlot, onSelectPlot }) {
   const mapElement = useRef(null);
   const map = useRef(null);
@@ -59,6 +68,14 @@ export default function VentureMap({ plots, selectedPlot, onSelectPlot }) {
         map.current = new maps.Map(mapElement.current, {
           center: { lat: 20.5937, lng: 78.9629 },
           zoom: 5,
+          styles: [
+            { featureType: 'all', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+            { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
+            { featureType: 'transit', elementType: 'all', stylers: [{ visibility: 'off' }] },
+            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#dce7e3' }] },
+            { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#ffffff' }] },
+            { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#65736d' }] }
+          ],
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
@@ -98,8 +115,7 @@ export default function VentureMap({ plots, selectedPlot, onSelectPlot }) {
         }
       });
       marker.addListener('click', () => {
-        map.current.panTo(position);
-        map.current.setZoom(16);
+        focusOnProperty(map.current, position);
         onSelectPlot(plot);
       });
       return marker;
@@ -108,15 +124,14 @@ export default function VentureMap({ plots, selectedPlot, onSelectPlot }) {
     if (selectedPlot) {
       const selectedPosition = getCoordinates(selectedPlot);
       if (selectedPosition) {
-        map.current.panTo(selectedPosition);
-        map.current.setZoom(16);
+        focusOnProperty(map.current, selectedPosition);
         return;
       }
     }
 
     if (mappedPlots.length === 1) {
       map.current.setCenter(mappedPlots[0].position);
-      map.current.setZoom(14);
+      map.current.setZoom(15);
     } else if (mappedPlots.length > 1) {
       const bounds = new window.google.maps.LatLngBounds();
       mappedPlots.forEach(({ position }) => bounds.extend(position));

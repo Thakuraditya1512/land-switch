@@ -31,19 +31,24 @@ export default function VentureMap({ plots, selectedPlot, onSelectPlot }) {
     return {
       latitude,
       longitude,
-      latitudeDelta: mappedPlots.length === 1 ? 0.08 : 2,
-      longitudeDelta: mappedPlots.length === 1 ? 0.08 : 2
+      latitudeDelta: mappedPlots.length === 1 ? 0.025 : 2,
+      longitudeDelta: mappedPlots.length === 1 ? 0.025 : 2
     };
   }, [mappedPlots]);
+
+  const focusOnProperty = coordinate => {
+    map.current?.animateCamera({
+      center: coordinate,
+      zoom: 19,
+      pitch: 55,
+      heading: 30
+    }, { duration: 900 });
+  };
 
   useEffect(() => {
     const coordinate = selectedPlot && getCoordinates(selectedPlot);
     if (!coordinate || !map.current) return;
-    map.current.animateToRegion({
-      ...coordinate,
-      latitudeDelta: 0.012,
-      longitudeDelta: 0.012
-    }, 650);
+    focusOnProperty(coordinate);
   }, [selectedPlot]);
 
   const useGoogleProvider = Platform.OS === 'android' || useGoogleMapsOnIos;
@@ -55,6 +60,10 @@ export default function VentureMap({ plots, selectedPlot, onSelectPlot }) {
         style={styles.map}
         initialRegion={initialRegion}
         provider={useGoogleProvider ? PROVIDER_GOOGLE : undefined}
+        mapType="satellite"
+        showsBuildings
+        pitchEnabled
+        rotateEnabled
         showsUserLocation={false}
         toolbarEnabled
       >
@@ -66,11 +75,7 @@ export default function VentureMap({ plots, selectedPlot, onSelectPlot }) {
             description={plot.location}
             pinColor="#2563EB"
             onPress={() => {
-              map.current?.animateToRegion({
-                ...coordinate,
-                latitudeDelta: 0.012,
-                longitudeDelta: 0.012
-              }, 650);
+              focusOnProperty(coordinate);
               onSelectPlot(plot);
             }}
           />

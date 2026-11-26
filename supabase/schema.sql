@@ -8,10 +8,12 @@ create table if not exists public.plots (
   area_sqyd numeric not null check (area_sqyd > 0),
   area_sqft numeric check (area_sqft is null or area_sqft > 0),
   property_type text not null default 'plot' check (property_type in ('plot','apartment','commercial','building')),
+  listing_type text not null default 'sale' check (listing_type in ('sale','rent')),
+  rent_period text check (rent_period is null or rent_period in ('month','year')),
   floor_number integer check (floor_number is null or floor_number >= 0),
   price numeric not null check (price > 0),
   contact_phone text,
-  status text not null default 'Available' check (status in ('Available','Reserved','Sold')),
+  status text not null default 'Available' check (status in ('Available','Reserved','Sold','Rented')),
   description text default '',
   developer_name text,
   approval_details text,
@@ -28,6 +30,10 @@ create table if not exists public.plots (
       and latitude between -90 and 90
       and longitude between -180 and 180
     )
+  ),
+  constraint plots_listing_rent_period_check check (
+    (listing_type = 'sale' and rent_period is null)
+    or (listing_type = 'rent' and rent_period in ('month','year'))
   )
 );
 
@@ -41,9 +47,12 @@ create table if not exists public.plot_interests (
   created_at timestamptz not null default now()
 );
 
-insert into storage.buckets (id, name, public)
-values ('venture-photos', 'venture-photos', true)
-on conflict (id) do update set public = true;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('venture-photos', 'venture-photos', true, 10485760, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update
+set public = true,
+    file_size_limit = 10485760,
+    allowed_mime_types = array['image/jpeg','image/png','image/webp'];
 
 do $$
 begin
@@ -57,6 +66,21 @@ begin
     create policy "Public can view PlotInvest venture photos"
       on storage.objects for select to public
       using (bucket_id = 'venture-photos');
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'Demo can upload PlotInvest venture photos'
+  ) then
+    create policy "Demo can upload PlotInvest venture photos"
+      on storage.objects for insert to public
+      with check (
+        bucket_id = 'venture-photos'
+        and (metadata->>'mimetype') in ('image/jpeg','image/png','image/webp')
+      );
   end if;
 end
 $$;
@@ -72,6 +96,9 @@ on public.plots for select using (true);
 
 create policy "Demo admin can add plots"
 on public.plots for insert with check (true);
+
+create policy "Demo admin can update plots"
+on public.plots for update using (true) with check (true);
 
 create policy "Interest can be submitted"
 on public.plot_interests for insert with check (true);
